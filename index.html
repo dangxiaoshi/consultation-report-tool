@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>咨询报告生成器 · 当小时</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0a; --surface: #141414; --surface2: #1a1a1a;
+      --border: #242424; --text: #f0f0f0; --muted: #888; --faint: #444;
+      --accent: #e8a046; --accent-dim: rgba(232,160,70,0.10);
+      --accent-border: rgba(232,160,70,0.28);
+      --red: #f87171; --red-dim: rgba(248,113,113,0.08);
+    }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system,"PingFang SC","Noto Sans SC",sans-serif; font-size: 14px; line-height: 1.65; min-height: 100vh; }
+
+    /* ── Layout ── */
+    .app { display: grid; grid-template-columns: 400px 1fr; min-height: 100vh; }
+    .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 28px 24px; display: flex; flex-direction: column; gap: 20px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    .preview-area { padding: 32px; overflow-y: auto; }
+
+    /* ── Sidebar ── */
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .brand-chip { background: var(--accent); color: #000; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+    .brand-label { font-size: 11px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+    .sidebar-title { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+    .sidebar-title span { color: var(--accent); }
+    .sidebar-desc { font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+    label { font-size: 11px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; display: block; margin-bottom: 8px; }
+    textarea {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-size: 13px; line-height: 1.65; padding: 14px 16px;
+      resize: vertical; min-height: 280px; font-family: inherit; transition: border-color .15s;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+    textarea::placeholder { color: var(--faint); }
+
+    .btn-generate {
+      width: 100%; background: var(--accent); color: #000; border: none;
+      padding: 13px; border-radius: 10px; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: opacity .15s; display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-generate:hover { opacity: .85; }
+    .btn-generate:disabled { opacity: .45; cursor: not-allowed; }
+
+    .btn-download {
+      width: 100%; background: var(--surface2); color: var(--accent); border: 1px solid var(--accent-border);
+      padding: 11px; border-radius: 10px; font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: opacity .15s; display: none; align-items: center; justify-content: center; gap: 7px;
+    }
+    .btn-download:hover { opacity: .75; }
+    .btn-download.visible { display: flex; }
+    .btn-download:disabled { opacity: .4; cursor: not-allowed; }
+
+    .status {
+      font-size: 12px; color: var(--muted); text-align: center;
+      padding: 10px; border-radius: 8px; background: var(--bg);
+      border: 1px solid var(--border); display: none;
+    }
+    .status.visible { display: block; }
+    .status.error { color: var(--red); border-color: rgba(248,113,113,0.3); background: var(--red-dim); }
+
+    .step { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: var(--faint); }
+    .step-num { width: 18px; height: 18px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+
+    /* ── Preview empty state ── */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--faint); text-align: center; padding: 40px; }
+    .empty-icon { font-size: 48px; opacity: .3; }
+    .empty-text { font-size: 13px; line-height: 1.7; max-width: 280px; }
+
+    /* ── Report (same styles as template) ── */
+    .report-wrap { max-width: 720px; margin: 0 auto; }
+    .r-header { border:1px solid var(--border); border-radius:14px; padding:28px 32px; margin-bottom:12px; background:var(--surface); position:relative; overflow:hidden; }
+    .r-header::before { content:''; position:absolute; top:-80px; right:-80px; width:260px; height:260px; border-radius:50%; background:radial-gradient(circle,rgba(232,160,70,.06) 0%,transparent 70%); pointer-events:none; }
+    .r-header-top { display:flex; align-items:center; gap:10px; margin-bottom:20px; }
+    .r-logo-chip { background:var(--accent); color:#000; font-size:11px; font-weight:700; padding:3px 10px; border-radius:6px; letter-spacing:.04em; }
+    .r-report-label { font-size:11px; color:var(--muted); letter-spacing:.12em; text-transform:uppercase; }
+    .r-title { font-size:22px; font-weight:800; letter-spacing:-.01em; margin-bottom:6px; }
+    .r-title span { color:var(--accent); }
+    .r-sub { font-size:13px; color:var(--muted); margin-bottom:20px; }
+    .r-meta-row { display:flex; gap:24px; flex-wrap:wrap; padding-top:18px; border-top:1px solid var(--border); }
+    .r-meta-item { display:flex; flex-direction:column; gap:2px; }
+    .r-meta-k { font-size:10px; color:var(--faint); letter-spacing:.12em; text-transform:uppercase; }
+    .r-meta-v { font-size:13px; color:var(--text); font-weight:500; }
+    .r-section { border:1px solid var(--border); border-radius:14px; background:var(--surface); margin-bottom:12px; overflow:hidden; }
+    .r-section-head { display:flex; align-items:center; gap:10px; padding:16px 24px; border-bottom:1px solid var(--border); }
+    .r-section-num { width:24px; height:24px; border-radius:6px; background:var(--accent-dim); border:1px solid var(--accent-border); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--accent); flex-shrink:0; }
+    .r-section-title { font-size:13px; font-weight:700; color:var(--text); letter-spacing:.02em; }
+    .r-section-body { padding:20px 24px; }
+    .r-profile-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; }
+    .r-profile-cell { padding:12px 16px; border-right:1px solid var(--border); border-bottom:1px solid var(--border); }
+    .r-profile-cell:nth-child(3n) { border-right:none; }
+    .r-profile-cell:nth-last-child(-n+3) { border-bottom:none; }
+    .r-pk { font-size:10px; color:var(--muted); letter-spacing:.08em; margin-bottom:4px; }
+    .r-pv { font-size:13px; color:var(--text); }
+    .r-diag-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+    .r-diag-card { border-radius:10px; padding:16px; border:1px solid transparent; }
+    .r-diag-card.surface { background:var(--red-dim); border-color:rgba(248,113,113,0.2); }
+    .r-diag-card.root { background:var(--accent-dim); border-color:var(--accent-border); }
+    .r-diag-label { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+    .r-diag-card.surface .r-diag-label { color:var(--red); }
+    .r-diag-card.root .r-diag-label { color:var(--accent); }
+    .r-diag-card p { font-size:13px; color:var(--muted); line-height:1.65; }
+    .r-insight { border:1px solid var(--border); border-radius:10px; padding:18px 20px; background:var(--surface2); position:relative; }
+    .r-insight::before { content:'"'; position:absolute; top:6px; left:16px; font-size:48px; color:var(--faint); font-family:Georgia,serif; line-height:1; }
+    .r-insight p { font-size:14px; color:var(--text); line-height:1.75; padding-left:28px; font-weight:500; }
+    .r-insight-src { font-size:11px; color:var(--faint); padding-left:28px; margin-top:8px; letter-spacing:.06em; }
+    .r-paths-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .r-path-card { border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .r-path-hd { padding:12px 16px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--border); background:var(--accent-dim); }
+    .r-path-dot { width:28px; height:28px; border-radius:7px; background:var(--accent-dim); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+    .r-path-name { font-size:13px; font-weight:700; color:var(--accent); }
+    .r-path-bd { padding:14px 16px; background:var(--surface2); }
+    .r-path-tag { display:inline-block; font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px; margin-bottom:10px; letter-spacing:.06em; text-transform:uppercase; background:var(--accent-dim); color:var(--accent); }
+    .r-path-rows { display:flex; flex-direction:column; gap:7px; }
+    .r-path-row { display:flex; gap:8px; font-size:12.5px; color:var(--muted); align-items:flex-start; line-height:1.55; }
+    .r-path-row::before { content:'·'; color:var(--faint); flex-shrink:0; }
+    .r-action-list { display:flex; flex-direction:column; }
+    .r-action-item { display:flex; gap:14px; align-items:flex-start; padding:14px 0; border-bottom:1px solid var(--border); }
+    .r-action-item:last-child { border-bottom:none; padding-bottom:0; }
+    .r-action-item:first-child { padding-top:0; }
+    .r-checkbox { width:18px; height:18px; border-radius:4px; border:1.5px solid var(--faint); flex-shrink:0; margin-top:2px; }
+    .r-action-main { font-size:13px; font-weight:600; color:var(--text); margin-bottom:3px; }
+    .r-action-note { font-size:12px; color:var(--muted); line-height:1.6; }
+    .r-wechat-ad { border:1px solid var(--accent-border); border-radius:14px; background:var(--accent-dim); padding:20px 24px; margin-bottom:12px; display:flex; align-items:center; gap:20px; }
+    .r-wechat-ad-icon { width:44px; height:44px; border-radius:10px; background:var(--accent); color:#000; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+    .r-wechat-ad-body { flex:1; }
+    .r-wechat-ad-title { font-size:14px; font-weight:700; color:var(--text); margin-bottom:3px; }
+    .r-wechat-ad-title span { color:var(--accent); }
+    .r-wechat-ad-desc { font-size:12px; color:var(--muted); line-height:1.6; }
+    .r-wechat-id { flex-shrink:0; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px 14px; text-align:center; }
+    .r-wechat-id-label { font-size:10px; color:var(--faint); letter-spacing:.1em; margin-bottom:3px; }
+    .r-wechat-id-val { font-size:13px; font-weight:700; color:var(--accent); letter-spacing:.04em; }
+    .r-footer { display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding:0 4px; }
+    .r-footer-brand { font-size:12px; color:var(--faint); }
+    .r-footer-note { font-size:11px; color:var(--faint); }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div>
+      <div class="brand">
+        <span class="brand-chip">当小时</span>
+        <span class="brand-label">咨询报告生成器</span>
+      </div>
+      <div class="sidebar-title" style="margin-top:12px">粘贴文字稿<br><span>自动生成报告</span></div>
+    </div>
+
+    <div class="sidebar-desc">
+      将咨询录音的文字稿粘贴进来，AI 自动提炼诊断、路径、行动清单，生成可下载的黑金长图报告。
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div class="step"><div class="step-num">1</div><span>粘贴咨询录音文字稿（支持带时间戳格式）</span></div>
+      <div class="step"><div class="step-num">2</div><span>点击「生成报告」，等待 AI 提炼（约 10 秒）</span></div>
+      <div class="step"><div class="step-num">3</div><span>右侧预览无误后，点「下载长图」</span></div>
+    </div>
+
+    <div>
+      <label>咨询文字稿</label>
+      <textarea id="transcript" placeholder="把录音转写的文字稿粘贴到这里...
+
+格式不限，支持：
+- 带说话人姓名的格式（当小时：...）
+- 带时间戳格式（00:00:00）
+- 纯文本流水账都可以"></textarea>
+    </div>
+
+    <button class="btn-generate" id="btnGenerate" onclick="generate()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      生成咨询报告
+    </button>
+
+    <div class="status" id="status"></div>
+
+    <button class="btn-download" id="btnDownload" onclick="downloadImage()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12l-4-4m4 4l4-4"/><path d="M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17"/></svg>
+      下载长图
+    </button>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-area" id="previewArea">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🎙</div>
+      <div class="empty-text">粘贴文字稿后点击「生成报告」<br>报告预览将在这里出现</div>
+    </div>
+    <div class="report-wrap" id="reportWrap" style="display:none"></div>
+  </div>
+
+</div>
+
+<script>
+// ── Config ──
+const DEEPSEEK_KEY = 'sk-a1d68136d14e410d8b652595fcb91c7d';
+const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+// ── html2canvas loader ──
+(function(){
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+  document.head.appendChild(s);
+})();
+
+function setStatus(msg, isError) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status visible' + (isError ? ' error' : '');
+}
+function clearStatus() {
+  document.getElementById('status').className = 'status';
+}
+
+async function generate() {
+  const transcript = document.getElementById('transcript').value.trim();
+  if (!transcript) { setStatus('请先粘贴文字稿', true); return; }
+
+  const btn = document.getElementById('btnGenerate');
+  btn.disabled = true;
+  btn.innerHTML = '<span style="animation:spin 1s linear infinite;display:inline-block">⏳</span> AI 提炼中…';
+  setStatus('正在调用 DeepSeek，约 10-20 秒…');
+
+  const prompt = `你是一个播客私教咨询报告提炼助手。分析以下咨询文字稿，提取关键信息，返回纯 JSON（不要 markdown 代码块，不要注释）。
+
+文字稿：
+${transcript}
+
+返回以下 JSON 结构（所有字段必须填写，字符串不超过100字）：
+{
+  "client": "咨询对象化名（用文字稿中的称呼或自行起一个，加"（化名）"）",
+  "title_first": "报告主标题第一部分，3-5字，概括身份或背景（例：宝妈重启计划）",
+  "title_second": "报告主标题第二部分，4-7字，概括核心主题（例：职业方向诊断）",
+  "subtitle": "副标题，一句话描述这次咨询的意义",
+  "meta4_key": "第四个元数据的标签（如：播客进度、当前阶段、核心话题）",
+  "meta4_val": "第四个元数据的值",
+  "profile": [
+    {"key": "身份/职业", "val": "xxx"},
+    {"key": "背景", "val": "xxx"},
+    {"key": "当前项目/在做的事", "val": "xxx"},
+    {"key": "已有资源", "val": "xxx"},
+    {"key": "核心困境", "val": "xxx"},
+    {"key": "当前状态", "val": "xxx"}
+  ],
+  "surface_problem": "来访者说出来的表层问题，一句话",
+  "root_problem": "咨询师挖掘出的深层根本原因，一句话",
+  "insight": "2-3句核心洞察金句，必须是咨询师说的最犀利的观察，用换行符\\n分隔句子",
+  "paths_title": "建议章节的标题（如：两条可行路径、三个方向建议）",
+  "paths": [
+    {
+      "icon": "一个相关emoji",
+      "name": "路径 A · 路径名称",
+      "tag": "3-8字标签描述（如：零成本·立刻可做）",
+      "rows": ["具体建议1", "具体建议2", "具体建议3", "具体建议4"]
+    },
+    {
+      "icon": "一个相关emoji",
+      "name": "路径 B · 路径名称",
+      "tag": "3-8字标签描述",
+      "rows": ["具体建议1", "具体建议2", "具体建议3", "具体建议4"]
+    }
+  ],
+  "actions": [
+    {"main": "行动标题，动词开头", "note": "补充说明，告诉他为什么或怎么做"},
+    {"main": "行动标题", "note": "补充说明"},
+    {"main": "行动标题", "note": "补充说明"},
+    {"main": "行动标题", "note": "补充说明"}
+  ]
+}`;
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DEEPSEEK_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        temperature: 0.3
+      })
+    });
+
+    if (!res.ok) throw new Error(`API 错误 ${res.status}`);
+    const data = await res.json();
+    const info = JSON.parse(data.choices[0].message.content);
+    renderReport(info);
+    clearStatus();
+    document.getElementById('btnDownload').className = 'btn-download visible';
+  } catch(e) {
+    setStatus('生成失败：' + e.message, true);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>重新生成';
+  }
+}
+
+function renderReport(d) {
+  const profileHTML = d.profile.map(p =>
+    `<div class="r-profile-cell"><div class="r-pk">${esc(p.key)}</div><div class="r-pv">${esc(p.val)}</div></div>`
+  ).join('');
+
+  const pathsHTML = d.paths.map(p =>
+    `<div class="r-path-card">
+      <div class="r-path-hd"><div class="r-path-dot">${p.icon}</div><div class="r-path-name">${esc(p.name)}</div></div>
+      <div class="r-path-bd">
+        <span class="r-path-tag">${esc(p.tag)}</span>
+        <div class="r-path-rows">${p.rows.map(r => `<div class="r-path-row">${esc(r)}</div>`).join('')}</div>
+      </div>
+    </div>`
+  ).join('');
+
+  const actionsHTML = d.actions.map(a =>
+    `<div class="r-action-item">
+      <div class="r-checkbox"></div>
+      <div><div class="r-action-main">${esc(a.main)}</div><div class="r-action-note">${esc(a.note)}</div></div>
+    </div>`
+  ).join('');
+
+  const insightLines = d.insight.split('\\n').join('<br>');
+
+  document.getElementById('reportWrap').innerHTML = `
+    <div class="r-header">
+      <div class="r-header-top"><span class="r-logo-chip">当小时</span><span class="r-report-label">播客私教 · 咨询报告</span></div>
+      <div class="r-title">${esc(d.title_first)} · <span>${esc(d.title_second)}</span></div>
+      <div class="r-sub">${esc(d.subtitle)}</div>
+      <div class="r-meta-row">
+        <div class="r-meta-item"><span class="r-meta-k">咨询对象</span><span class="r-meta-v">${esc(d.client)}</span></div>
+        <div class="r-meta-item"><span class="r-meta-k">咨询顾问</span><span class="r-meta-v">当小时</span></div>
+        <div class="r-meta-item"><span class="r-meta-k">形式</span><span class="r-meta-v">1v1 语音</span></div>
+        <div class="r-meta-item"><span class="r-meta-k">${esc(d.meta4_key)}</span><span class="r-meta-v">${esc(d.meta4_val)}</span></div>
+      </div>
+    </div>
+
+    <div class="r-section">
+      <div class="r-section-head"><div class="r-section-num">01</div><div class="r-section-title">基本情况</div></div>
+      <div class="r-profile-grid">${profileHTML}</div>
+    </div>
+
+    <div class="r-section">
+      <div class="r-section-head"><div class="r-section-num">02</div><div class="r-section-title">核心诊断</div></div>
+      <div class="r-section-body">
+        <div class="r-diag-row">
+          <div class="r-diag-card surface"><div class="r-diag-label">表层问题</div><p>${esc(d.surface_problem)}</p></div>
+          <div class="r-diag-card root"><div class="r-diag-label">根本问题</div><p>${esc(d.root_problem)}</p></div>
+        </div>
+        <div class="r-insight">
+          <p>${insightLines}</p>
+          <div class="r-insight-src">— 咨询现场核心观察</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="r-section">
+      <div class="r-section-head"><div class="r-section-num">03</div><div class="r-section-title">${esc(d.paths_title)}</div></div>
+      <div class="r-section-body"><div class="r-paths-grid">${pathsHTML}</div></div>
+    </div>
+
+    <div class="r-section">
+      <div class="r-section-head"><div class="r-section-num">04</div><div class="r-section-title">本阶段行动清单</div></div>
+      <div class="r-section-body"><div class="r-action-list">${actionsHTML}</div></div>
+    </div>
+
+    <div class="r-wechat-ad">
+      <div class="r-wechat-ad-icon">🎙</div>
+      <div class="r-wechat-ad-body">
+        <div class="r-wechat-ad-title">想用播客做<span>高客单精准引流</span>？</div>
+        <div class="r-wechat-ad-desc">加我微信，聊聊你适不适合做播客 · 1v1 私教 · 不限次深度陪跑</div>
+      </div>
+      <div class="r-wechat-id"><div class="r-wechat-id-label">微信号</div><div class="r-wechat-id-val">gaoqiantongxue</div></div>
+    </div>
+
+    <div class="r-footer">
+      <span class="r-footer-brand">当小时 · 播客私教咨询</span>
+      <span class="r-footer-note">本报告已化名处理，仅供咨询对象参考使用</span>
+    </div>`;
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('reportWrap').style.display = 'block';
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function downloadImage() {
+  if (typeof html2canvas === 'undefined') { alert('需要联网加载截图组件，请确认网络后刷新重试。'); return; }
+  const btn = document.getElementById('btnDownload');
+  btn.disabled = true;
+  btn.innerHTML = '生成中…';
+  try {
+    const wrap = document.getElementById('reportWrap');
+    const canvas = await html2canvas(wrap, {
+      scale: 2, backgroundColor: '#0a0a0a', useCORS: true, logging: false,
+      y: -wrap.getBoundingClientRect().top + document.getElementById('previewArea').scrollTop
+    });
+    const a = document.createElement('a');
+    a.download = `咨询报告-${Date.now()}.png`;
+    a.href = canvas.toDataURL('image/png');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } catch(e) {
+    alert('生成失败，请截图保存。'); console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12l-4-4m4 4l4-4"/><path d="M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17"/></svg>下载长图';
+  }
+}
+</script>
+</body>
+</html>
